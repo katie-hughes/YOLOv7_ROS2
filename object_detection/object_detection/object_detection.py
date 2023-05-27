@@ -72,8 +72,9 @@ class ObjectDetection(Node):
             self.intr_sub = self.create_subscription(CameraInfo, 'camera/aligned_depth_to_color/camera_info', self.intr_callback, 10)
 
         if self.use_dog_cam:
-            self.dog_cam_sub = self.create_subscription(CompressedImage, '/head/front/cam/image_rect/left/compressed', self.dog_cam_cb, 10)
-            
+            self.dog_left_sub = self.create_subscription(CompressedImage, '/head/front/cam/image_rect/left/compressed', self.dog_left_cb, 10)
+            self.dog_right_sub = self.create_subscription(CompressedImage, '/head/front/cam/image_rect/right/compressed', self.dog_right_cb, 10)
+            self.dog_depth_sub = self.create_subscription(Image, '/head/front/cam/image_depth', self.dog_depth_cb, 10)
 
         # Initialize YOLOv7
         set_logging()
@@ -95,7 +96,14 @@ class ObjectDetection(Node):
         self.old_img_b = 1
 
         # tracking
-        self.tracking = []
+        self.left_tracking = []
+        self.right_tracking = []
+        self.dog_left_image = None
+        self.dog_right_image = None
+        self.dog_depth_image = None
+
+        self.last_left = None
+        self.last_right = None
 
 
     def intr_callback(self, cameraInfo):
@@ -149,7 +157,7 @@ class ObjectDetection(Node):
         self.camera_RGB = True
 
 
-    def dog_cam_cb(self, data):
+    def dog_left_cb(self, data):
         """
         Subscription to the compressed RGB camera topic.
 
@@ -159,25 +167,52 @@ class ObjectDetection(Node):
         Returns: None
         """
         # self.get_logger().info("Got dog cam image!")
-        self.rgb_image = self.bridge.compressed_imgmsg_to_cv2(data)
+        self.dog_left_image = self.bridge.compressed_imgmsg_to_cv2(data)
         self.camera_dog = True
 
-    def YOLOv7_detect(self):
+    def dog_right_cb(self, data):
+        """
+        Subscription to the compressed RGB camera topic.
+
+        Args: data (sensor_msgs/msg/CompressedImage): Frames obtained from the 
+                                                      /head/front/cam/image_rect/right/compressed topic
+
+        Returns: None
+        """
+        # self.get_logger().info("Got dog cam image!")
+        self.dog_right_image = self.bridge.compressed_imgmsg_to_cv2(data)
+        self.camera_dog = True
+
+    def dog_depth_cb(self, data):
+        """
+        Subscription to the compressed depth camera topic.
+
+        Args: data (sensor_msgs/msg/CompressedImage): Frames obtained from the 
+                                                      /head/front/cam/image_rect/left/compressedDepth topic
+
+        Returns: None
+        """
+        # self.get_logger().info("Got dog cam image!")
+        self.dog_depth_image = self.bridge.imgmsg_to_cv2(data)
+        # self.camera_dog = True
+        # cv2.imshow("DepthImage", self.dog_depth_image)
+        # cv2.waitKey(1)
+
+    def YOLOv7_detect(self, dog_frame=None):
         """ Preform object detection with YOLOv7"""
 
         if self.camera_RGB:
              # Flip realsense image as it is mounted upside down on dog
             img = cv2.flip(cv2.flip(np.asanyarray(self.rgb_image),0),1)
             # self.get_logger().info(f"REALSENSE SHAPE:{img.shape}")
-        elif self.camera_dog:
+        elif self.camera_dog and dog_frame=="left":
             # dont flip from onboard unitree camera
-            img = self.rgb_image
-            # self.get_logger().info(f"DOG SHAPE:{img.shape}")
+            img = self.dog_left_image
             img = cv2.resize(img, [640,480])
-            # self.get_logger().info(f"After:{img.shape}")
-            # cv2.imshow("Resized", img)
-            # cv2.waitKey(1)
-            # return
+        elif self.camera_dog and dog_frame=="right":
+            # dont flip from onboard unitree camera
+            img = self.dog_right_image
+            img = cv2.resize(img, [640,480])
 
         im0 = img.copy()
         # img is the "tensor" object
@@ -205,13 +240,14 @@ class ObjectDetection(Node):
         # Inference
         t1 = time_synchronized()
         with torch.no_grad():   # Calculating gradients would cause a GPU memory leak
-            # WHY IS THIS AN ISSUE?????
             pred = self.model(img)[0]
         t2 = time_synchronized()
 
         # Apply NMS
         pred = non_max_suppression(pred, self.conf_thres, self.iou_thres)
         t3 = time_synchronized()
+
+        detected = False
 
         # Process detections   
         for i, det in enumerate(pred):  # detections per image
@@ -229,14 +265,20 @@ class ObjectDetection(Node):
                     label = f'{self.names[int(cls)]} {conf:.2f}'
 
                     if conf > 0.8: # Limit confidence threshold to 80% for all classes
+                        detected = True
                         # Draw a boundary box around each object
                         plot_one_box(xyxy, im0, label=label, color=self.colors[int(cls)], line_thickness=2)
                         # Get box top left & bottom right coordinates
                         c1, c2 = (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3]))
                         x = int((c2[0]+c1[0])/2)
                         y = int((c2[1]+c1[1])/2)
-                        self.get_logger().info(f"x,y:{x} {y}")
-                        self.tracking.append((x,y))
+                        # self.get_logger().info(f"x,y:{x} {y}")
+                        if dog_frame == "left":
+                            self.left_tracking.append((x,y))
+                            self.last_left = (x,y)
+                        elif dog_frame == "right":
+                            self.right_tracking.append((x,y))
+                            self.last_right = (x,y)
                         im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
 
                         if self.use_depth == True:
@@ -270,15 +312,31 @@ class ObjectDetection(Node):
                                         self.pub_stairs.publish(self.stairs)
                                     self.get_logger().info(f"depth_coord = {real_coords[0]*depth_scale}  {real_coords[1]*depth_scale}  {real_coords[2]*depth_scale}")
 
-            cv2.imshow("YOLOv7 Object detection result RGB", cv2.resize(im0, None, fx=1.5, fy=1.5))
+            imshow_label = "YOLOv7 Object detection result RGB"
+            if dog_frame is not None:
+                imshow_label += ": Dog "+dog_frame
+            cv2.imshow(imshow_label, cv2.resize(im0, None, fx=1.5, fy=1.5))
             if self.use_depth == True:
                 cv2.imshow("YOLOv7 Object detection result Depth", cv2.resize(self.depth_color_map, None, fx=1.5, fy=1.5))
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+        if not detected:
+            if dog_frame == "left":
+                self.last_left = None
+            elif dog_frame == "right":
+                self.last_right = None
+    
+    def calculate_depth(self):
+        # determine last positions in left and right frame
+        self.get_logger().info(f"Last: {self.last_left}, {self.last_right}")
 
     def timer_callback(self):
-        if self.camera_RGB or self.camera_dog:
+        if self.use_RGB and self.camera_RGB:
             self.YOLOv7_detect()
+        elif self.use_dog_cam and (self.dog_left_image is not None) and (self.dog_right_image is not None):
+            self.YOLOv7_detect(dog_frame='left')
+            self.YOLOv7_detect(dog_frame='right')
+            self.calculate_depth()
 
 def main(args=None):
     """Run the main function."""
