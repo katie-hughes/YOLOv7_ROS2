@@ -3,7 +3,7 @@
     <!-- Parameters -->
     <arg name="use_realsense" default="False" />
     <arg name="use_dog_cam" default="False" />
-    <arg name="dog_cam_location" default="head/front" />
+    <arg name="dog_cam_location" default="head/front"  description="Options: head/front, body/left, body/right"/>
     <arg name="use_RGB" default="True" />
     <arg name="use_depth" default="False" />
     <arg name="use_YOLOv7" default="False" />
