@@ -14,6 +14,7 @@ from utils.general import check_img_size, non_max_suppression, scale_coords, \
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized,\
     TracedModel
+from unitree_crowd_nav_interfaces.msg import PixelArray, Pixel
 
 
 class ObjectDetection(Node):
@@ -102,9 +103,13 @@ class ObjectDetection(Node):
         self.dog_right_image = None
         self.dog_depth_image = None
 
-        self.last_left = None
-        self.last_right = None
+        self.rgb_result = None
+        self.depth_result = None
+        self.dog_left_result = None
+        self.dog_right_result = None
 
+        self.pub_left = self.create_publisher(PixelArray, "/pixel_left", 10)
+        self.pub_right = self.create_publisher(PixelArray, "/pixel_right", 10)
 
     def intr_callback(self, cameraInfo):
         """
@@ -273,12 +278,13 @@ class ObjectDetection(Node):
                         x = int((c2[0]+c1[0])/2)
                         y = int((c2[1]+c1[1])/2)
                         # self.get_logger().info(f"x,y:{x} {y}")
+                        pix = Pixel()
+                        pix.x = x
+                        pix.y = y
                         if dog_frame == "left":
-                            self.left_tracking.append((x,y))
-                            self.last_left = (x,y)
+                            self.left_tracking.append(pix)
                         elif dog_frame == "right":
-                            self.right_tracking.append((x,y))
-                            self.last_right = (x,y)
+                            self.right_tracking.append(pix)
                         im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
 
                         if self.use_depth == True:
@@ -312,31 +318,51 @@ class ObjectDetection(Node):
                                         self.pub_stairs.publish(self.stairs)
                                     self.get_logger().info(f"depth_coord = {real_coords[0]*depth_scale}  {real_coords[1]*depth_scale}  {real_coords[2]*depth_scale}")
 
-            imshow_label = "YOLOv7 Object detection result RGB"
+            # imshow_label = "YOLOv7 Object detection result RGB"
             if dog_frame is not None:
-                imshow_label += ": Dog "+dog_frame
-            cv2.imshow(imshow_label, cv2.resize(im0, None, fx=1.5, fy=1.5))
-            if self.use_depth == True:
-                cv2.imshow("YOLOv7 Object detection result Depth", cv2.resize(self.depth_color_map, None, fx=1.5, fy=1.5))
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                # imshow_label += ": Dog "+dog_frame
+                if dog_frame == 'left':
+                    self.dog_left_result = im0
+                elif dog_frame == 'right':
+                    self.dog_right_result = im0
+            else:
+                self.rgb_result = im0
+                if self.use_depth:
+                    self.depth_result = self.depth_color_map
+            # cv2.imshow(imshow_label, cv2.resize(im0, None, fx=1.5, fy=1.5))
+            # if self.use_depth == True:
+            #     cv2.imshow("YOLOv7 Object detection result Depth", cv2.resize(self.depth_color_map, None, fx=1.5, fy=1.5))
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
+            #     break
         if not detected:
             if dog_frame == "left":
                 self.last_left = None
             elif dog_frame == "right":
                 self.last_right = None
     
-    def calculate_depth(self):
+    def publish_points(self):
         # determine last positions in left and right frame
-        self.get_logger().info(f"Last: {self.last_left}, {self.last_right}")
+        self.get_logger().info(f"Last: {self.left_tracking}, {self.right_tracking}")
 
     def timer_callback(self):
         if self.use_RGB and self.camera_RGB:
             self.YOLOv7_detect()
+            cv2.imshow("Realsense YOLO Results", self.rgb_result)
+            if self.use_depth:
+                cv2.imshow("Realsense YOLO Results: Depth", self.depth_result)
+            cv2.waitKey(1)
         elif self.use_dog_cam and (self.dog_left_image is not None) and (self.dog_right_image is not None):
             self.YOLOv7_detect(dog_frame='left')
             self.YOLOv7_detect(dog_frame='right')
-            self.calculate_depth()
+            # publish tracking information
+            self.publish_points()
+            # reset tracking information
+            self.left_tracking = []
+            self.right_tracking = []
+            # display image
+            concat = np.concatenate((self.dog_left_result, self.dog_right_result), axis=1)
+            cv2.imshow("Dog YOLO Results", concat)
+            cv2.waitKey(1)
 
 def main(args=None):
     """Run the main function."""
