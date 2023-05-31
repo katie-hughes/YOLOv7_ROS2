@@ -97,8 +97,8 @@ class ObjectDetection(Node):
         self.old_img_b = 1
 
         # tracking
-        self.left_tracking = []
-        self.right_tracking = []
+        self.left_tracking = PixelArray()
+        self.right_tracking = PixelArray()
         self.dog_left_image = None
         self.dog_right_image = None
         self.dog_depth_image = None
@@ -282,9 +282,9 @@ class ObjectDetection(Node):
                         pix.x = x
                         pix.y = y
                         if dog_frame == "left":
-                            self.left_tracking.append(pix)
+                            self.left_tracking.pixels.append(pix)
                         elif dog_frame == "right":
-                            self.right_tracking.append(pix)
+                            self.right_tracking.pixels.append(pix)
                         im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
 
                         if self.use_depth == True:
@@ -341,8 +341,14 @@ class ObjectDetection(Node):
                 self.last_right = None
     
     def publish_points(self):
-        # determine last positions in left and right frame
-        self.get_logger().info(f"Last: {self.left_tracking}, {self.right_tracking}")
+        # Print last positions in left and right frame
+        self.get_logger().info(f"Tracking: {self.left_tracking}, {self.right_tracking}")
+        self.pub_left.publish(self.left_tracking)
+        self.pub_right.publish(self.right_tracking)
+        # reset tracking information
+        self.left_tracking = PixelArray()
+        self.right_tracking = PixelArray()
+
 
     def timer_callback(self):
         if self.use_RGB and self.camera_RGB:
@@ -354,11 +360,9 @@ class ObjectDetection(Node):
         elif self.use_dog_cam and (self.dog_left_image is not None) and (self.dog_right_image is not None):
             self.YOLOv7_detect(dog_frame='left')
             self.YOLOv7_detect(dog_frame='right')
-            # publish tracking information
+            # publish, reset tracking information
             self.publish_points()
-            # reset tracking information
-            self.left_tracking = []
-            self.right_tracking = []
+            
             # display image
             concat = np.concatenate((self.dog_left_result, self.dog_right_result), axis=1)
             cv2.imshow("Dog YOLO Results", concat)
