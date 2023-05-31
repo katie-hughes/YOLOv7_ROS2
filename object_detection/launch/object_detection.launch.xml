@@ -3,15 +3,18 @@
     <!-- Parameters -->
     <arg name="use_realsense" default="False" />
     <arg name="use_dog_cam" default="False" />
+    <arg name="dog_cam_location" default="head/front" />
     <arg name="use_RGB" default="True" />
     <arg name="use_depth" default="False" />
     <arg name="use_YOLOv7" default="False" />
+
 
     <!-- YOLOv7 Object detection node -->
     <node pkg="object_detection" exec="object_detection" name="object_detection" if="$(eval '\'$(var use_YOLOv7)\' == \'True\'')">
         <param name="use_RGB" value="$(var use_RGB)" />
         <param name="use_depth" value="$(var use_depth)" />
         <param name="use_dog_cam" value="$(var use_dog_cam)" />
+        <param name="dog_cam_location" value="$(var dog_cam_location)" />
     </node>
 
     <!-- Launch realsense launch file -->

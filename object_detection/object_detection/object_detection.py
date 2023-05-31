@@ -29,6 +29,7 @@ class ObjectDetection(Node):
         self.declare_parameter("use_RGB", False, ParameterDescriptor(description="Use realsense RGB camera"))
         self.declare_parameter("use_depth", False, ParameterDescriptor(description="Use realsense Depth camera"))
         self.declare_parameter("use_dog_cam", False, ParameterDescriptor(description="Use onboard Unitree camera"))
+        self.declare_parameter("dog_cam_location", "head/front", ParameterDescriptor(description="Frame for the Unitree camera"))
 
         self.weights = self.get_parameter("weights").get_parameter_value().string_value
         self.conf_thres = self.get_parameter("conf_thres").get_parameter_value().double_value
@@ -38,6 +39,7 @@ class ObjectDetection(Node):
         self.use_RGB = self.get_parameter("use_RGB").get_parameter_value().bool_value
         self.use_depth = self.get_parameter("use_depth").get_parameter_value().bool_value
         self.use_dog_cam = self.get_parameter("use_dog_cam").get_parameter_value().bool_value
+        self.dog_cam_location = self.get_parameter("dog_cam_location").get_parameter_value().string_value
 
         # Camera info and frames
         self.depth = None
@@ -64,7 +66,7 @@ class ObjectDetection(Node):
 
         # Realsense package
         self.bridge = CvBridge()
-        
+
         # Subscribers
         if self.use_RGB:
             self.rs_sub = self.create_subscription(CompressedImage, '/camera/color/image_raw/compressed', self.rs_callback, 10)
@@ -73,9 +75,9 @@ class ObjectDetection(Node):
             self.intr_sub = self.create_subscription(CameraInfo, 'camera/aligned_depth_to_color/camera_info', self.intr_callback, 10)
 
         if self.use_dog_cam:
-            self.dog_left_sub = self.create_subscription(CompressedImage, '/head/front/cam/image_rect/left/compressed', self.dog_left_cb, 10)
-            self.dog_right_sub = self.create_subscription(CompressedImage, '/head/front/cam/image_rect/right/compressed', self.dog_right_cb, 10)
-            self.dog_depth_sub = self.create_subscription(Image, '/head/front/cam/image_depth', self.dog_depth_cb, 10)
+            self.dog_left_sub = self.create_subscription(CompressedImage, '/'+self.dog_cam_location+'/cam/image_rect/left/compressed', self.dog_left_cb, 10)
+            self.dog_right_sub = self.create_subscription(CompressedImage, '/'+self.dog_cam_location+'/cam/image_rect/right/compressed', self.dog_right_cb, 10)
+            self.dog_depth_sub = self.create_subscription(Image, '/'+self.dog_cam_location+'/cam/image_depth', self.dog_depth_cb, 10)
 
         # Initialize YOLOv7
         set_logging()
@@ -108,8 +110,8 @@ class ObjectDetection(Node):
         self.dog_left_result = None
         self.dog_right_result = None
 
-        self.pub_left = self.create_publisher(PixelArray, "/pixel_left", 10)
-        self.pub_right = self.create_publisher(PixelArray, "/pixel_right", 10)
+        self.pub_left = self.create_publisher(PixelArray, self.dog_cam_location+"/pixels_left", 10)
+        self.pub_right = self.create_publisher(PixelArray, self.dog_cam_location+"/pixels_right", 10)
 
     def intr_callback(self, cameraInfo):
         """
@@ -317,10 +319,7 @@ class ObjectDetection(Node):
                                         self.stairs.z = real_coords[2]*depth_scale # Depth
                                         self.pub_stairs.publish(self.stairs)
                                     self.get_logger().info(f"depth_coord = {real_coords[0]*depth_scale}  {real_coords[1]*depth_scale}  {real_coords[2]*depth_scale}")
-
-            # imshow_label = "YOLOv7 Object detection result RGB"
             if dog_frame is not None:
-                # imshow_label += ": Dog "+dog_frame
                 if dog_frame == 'left':
                     self.dog_left_result = im0
                 elif dog_frame == 'right':
@@ -329,11 +328,6 @@ class ObjectDetection(Node):
                 self.rgb_result = im0
                 if self.use_depth:
                     self.depth_result = self.depth_color_map
-            # cv2.imshow(imshow_label, cv2.resize(im0, None, fx=1.5, fy=1.5))
-            # if self.use_depth == True:
-            #     cv2.imshow("YOLOv7 Object detection result Depth", cv2.resize(self.depth_color_map, None, fx=1.5, fy=1.5))
-            # if cv2.waitKey(1) & 0xFF == ord('q'):
-            #     break
         if not detected:
             if dog_frame == "left":
                 self.last_left = None
@@ -342,13 +336,12 @@ class ObjectDetection(Node):
     
     def publish_points(self):
         # Print last positions in left and right frame
-        self.get_logger().info(f"Tracking: {self.left_tracking}, {self.right_tracking}")
+        self.get_logger().info(f"\nL: {self.left_tracking.pixels}\nR: {self.right_tracking.pixels}")
         self.pub_left.publish(self.left_tracking)
         self.pub_right.publish(self.right_tracking)
         # reset tracking information
         self.left_tracking = PixelArray()
         self.right_tracking = PixelArray()
-
 
     def timer_callback(self):
         if self.use_RGB and self.camera_RGB:
@@ -362,7 +355,6 @@ class ObjectDetection(Node):
             self.YOLOv7_detect(dog_frame='right')
             # publish, reset tracking information
             self.publish_points()
-            
             # display image
             concat = np.concatenate((self.dog_left_result, self.dog_right_result), axis=1)
             cv2.imshow("Dog YOLO Results", concat)
