@@ -294,7 +294,6 @@ class ObjectDetection(Node):
                         # self.get_logger().info(f"x,y:{x} {y}")
                         im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
                         img_og = cv2.circle(img_og, (int(scale_x*x),int(scale_y*y)), radius=5, color=(0, 0, 255), thickness=-1)
-                        
                         pix = Pixel()
                         pix.x = int(scale_x*x)
                         pix.y = int(scale_y*y)
