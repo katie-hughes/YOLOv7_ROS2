@@ -207,6 +207,9 @@ class ObjectDetection(Node):
 
     def YOLOv7_detect(self, dog_frame=None):
         """ Preform object detection with YOLOv7"""
+        
+        shape_before = None
+        shape_after = None
 
         if self.camera_RGB:
              # Flip realsense image as it is mounted upside down on dog
@@ -215,11 +218,20 @@ class ObjectDetection(Node):
         elif self.camera_dog and dog_frame=="left":
             # dont flip from onboard unitree camera
             img = self.dog_left_image
+            img_og = img.copy()
+            shape_before = img.shape
             img = cv2.resize(img, [640,480])
+            shape_after = img.shape
         elif self.camera_dog and dog_frame=="right":
             # dont flip from onboard unitree camera
             img = self.dog_right_image
+            img_og = img.copy()
+            shape_before = img.shape
             img = cv2.resize(img, [640,480])
+            shape_after = img.shape
+
+        scale_x = shape_before[1]/shape_after[1]
+        scale_y = shape_before[0]/shape_after[0]
 
         im0 = img.copy()
         # img is the "tensor" object
@@ -280,15 +292,16 @@ class ObjectDetection(Node):
                         x = int((c2[0]+c1[0])/2)
                         y = int((c2[1]+c1[1])/2)
                         # self.get_logger().info(f"x,y:{x} {y}")
+                        im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
+                        img_og = cv2.circle(img_og, (int(scale_x*x),int(scale_y*y)), radius=5, color=(0, 0, 255), thickness=-1)
+                        
                         pix = Pixel()
-                        pix.x = x
-                        pix.y = y
+                        pix.x = int(scale_x*x)
+                        pix.y = int(scale_y*y)
                         if dog_frame == "left":
                             self.left_tracking.pixels.append(pix)
                         elif dog_frame == "right":
                             self.right_tracking.pixels.append(pix)
-                        im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
-
                         if self.use_depth == True:
                             plot_one_box(xyxy, self.depth_color_map, label=label, color=self.colors[int(cls)], line_thickness=2)
 
@@ -321,22 +334,20 @@ class ObjectDetection(Node):
                                     self.get_logger().info(f"depth_coord = {real_coords[0]*depth_scale}  {real_coords[1]*depth_scale}  {real_coords[2]*depth_scale}")
             if dog_frame is not None:
                 if dog_frame == 'left':
-                    self.dog_left_result = im0
+                    self.dog_left_result = img_og # im0
+                    # cv2.imshow("original left", self.dog_left_image)
                 elif dog_frame == 'right':
-                    self.dog_right_result = im0
+                    self.dog_right_result = img_og # im0
+                    # cv2.imshow("original right", self.dog_right_image)
             else:
                 self.rgb_result = im0
                 if self.use_depth:
                     self.depth_result = self.depth_color_map
-        if not detected:
-            if dog_frame == "left":
-                self.last_left = None
-            elif dog_frame == "right":
-                self.last_right = None
+            # cv2.waitKey(1)
     
     def publish_points(self):
         # Print last positions in left and right frame
-        self.get_logger().info(f"\nL: {self.left_tracking.pixels}\nR: {self.right_tracking.pixels}")
+        # self.get_logger().info(f"\nL: {self.left_tracking.pixels}\nR: {self.right_tracking.pixels}")
         self.pub_left.publish(self.left_tracking)
         self.pub_right.publish(self.right_tracking)
         # reset tracking information
