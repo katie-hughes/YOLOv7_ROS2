@@ -286,17 +286,23 @@ class ObjectDetection(Node):
                     if conf > 0.8: # Limit confidence threshold to 80% for all classes
                         detected = True
                         # Draw a boundary box around each object
-                        plot_one_box(xyxy, im0, label=label, color=self.colors[int(cls)], line_thickness=2)
+                        # plot_one_box(xyxy, im0, label=label, color=self.colors[int(cls)], line_thickness=2)
                         # Get box top left & bottom right coordinates
                         c1, c2 = (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3]))
                         x = int((c2[0]+c1[0])/2)
                         y = int((c2[1]+c1[1])/2)
+                        xyxy[0] = int(xyxy[0]*scale_x)
+                        xyxy[1] = int(xyxy[1]*scale_y)
+                        xyxy[2] = int(xyxy[2]*scale_x)
+                        xyxy[3] = int(xyxy[3]*scale_y)
                         # self.get_logger().info(f"x,y:{x} {y}")
                         im0 = cv2.circle(im0, (x,y), radius=5, color=(0, 0, 255), thickness=-1)
+                        plot_one_box(xyxy, img_og, label=label, color=self.colors[int(cls)], line_thickness=2)
                         img_og = cv2.circle(img_og, (int(scale_x*x),int(scale_y*y)), radius=5, color=(0, 0, 255), thickness=-1)
                         pix = Pixel()
                         pix.x = int(scale_x*x)
                         pix.y = int(scale_y*y)
+                        
                         if dog_frame == "left":
                             self.left_tracking.pixels.append(pix)
                         elif dog_frame == "right":
