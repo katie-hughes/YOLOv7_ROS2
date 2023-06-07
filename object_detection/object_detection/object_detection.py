@@ -370,9 +370,16 @@ class ObjectDetection(Node):
             self.YOLOv7_detect(dog_frame='left')
             self.YOLOv7_detect(dog_frame='right')
             # publish, reset tracking information
-            self.publish_points()
             # display image
             concat = np.concatenate((self.dog_left_result, self.dog_right_result), axis=1)
+            # if self.dog_depth_image is not None:
+            #     for p in self.left_tracking.pixels:
+            #         self.get_logger().info(f"PIXELS: {p.x} {p.y}: {self.dog_depth_image[p.x][p.y]}")
+            #         self.dog_depth_image = cv2.circle(self.dog_depth_image, (p.x , p.y), radius=5, color=(0, 0, 255), thickness=-1)
+            #     concat = np.concatenate((self.dog_left_result, self.dog_depth_image), axis=1)
+            # else:
+            #     concat = self.dog_left_result
+            self.publish_points()
             cv2.imshow("Dog YOLO Results", concat)
             cv2.waitKey(1)
 
